@@ -1,14 +1,18 @@
 use std::{
+    net::SocketAddr,
     sync::{mpsc, Arc},
     thread,
     time::Duration,
 };
 
-use futures::{future, stream::Stream, sync::oneshot, Future};
-use hyper::{service::service_fn, Body, Method, Request, Response, Server, StatusCode};
+use bytes::Bytes;
+use futures::channel::oneshot;
+use http_body_util::{BodyExt, Full};
+use hyper::server::conn::http1;
+use hyper::service::Service;
+use hyper::{Request, Response, StatusCode};
 use serde::Deserialize;
-
-type HyperResponse = Box<dyn Future<Item = Response<Body>, Error = hyper::Error> + Send>;
+use tokio::runtime::Runtime;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -50,61 +54,39 @@ impl MessageReceiver {
         let server_id = Arc::new(options.server_id.clone());
 
         thread::spawn(move || {
-            let service = move || {
-                let server_id = server_id.clone();
-                let message_tx = message_tx.clone();
-
-                service_fn(move |request: Request<Body>| -> HyperResponse {
-                    let server_id = server_id.clone();
-                    let message_tx = message_tx.clone();
-                    let mut response = Response::new(Body::empty());
-
-                    log::debug!("Request: {} {}", request.method(), request.uri().path());
-
-                    match (request.method(), request.uri().path()) {
-                        (&Method::GET, "/") => {
-                            *response.body_mut() = Body::from(server_id.as_str().to_owned());
+            // Build a Tokio runtime per thread; small scope so it drops when server exits.
+            let rt = Runtime::new().expect("Failed to build Tokio runtime");
+            rt.block_on(async move {
+                let addr: SocketAddr = ([127, 0, 0, 1], options.port).into();
+                let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
+                let mut shutdown_rx = shutdown_rx;
+                loop {
+                    tokio::select! {
+                        _ = &mut shutdown_rx => {
+                            break;
                         }
-                        (&Method::POST, "/start") => {
-                            message_tx.send(Message::Start).unwrap();
-                            *response.body_mut() = Body::from("Started");
-                        }
-                        (&Method::POST, "/stop") => {
-                            message_tx.send(Message::Stop).unwrap();
-                            *response.body_mut() = Body::from("Finished");
-                        }
-                        (&Method::POST, "/messages") => {
-                            let message_tx = message_tx.clone();
-
-                            let future = request.into_body().concat2().map(move |chunk| {
-                                let source = chunk.to_vec();
-                                let messages: Vec<RobloxMessage> = serde_json::from_slice(&source)
-                                    .expect("Failed deserializing message from Roblox Studio");
-
-                                message_tx.send(Message::Messages(messages)).unwrap();
-
-                                *response.body_mut() = Body::from("Got it!");
-                                response
-                            });
-
-                            return Box::new(future);
-                        }
-                        _ => {
-                            *response.status_mut() = StatusCode::NOT_FOUND;
+                        incoming = listener.accept() => {
+                            match incoming {
+                                Ok((stream, _peer)) => {
+                                    let server_id = server_id.clone();
+                                    let message_tx = message_tx.clone();
+                                    tokio::spawn(async move {
+                                        let service = HyperService { server_id, message_tx };
+                                        let io = hyper_util::rt::TokioIo::new(stream);
+                                        if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                                            log::error!("hyper connection error: {err}");
+                                        }
+                                    });
+                                }
+                                Err(err) => {
+                                    log::error!("Accept error: {err}");
+                                    break;
+                                }
+                            }
                         }
                     }
-
-                    Box::new(future::ok(response))
-                })
-            };
-
-            let addr = ([127, 0, 0, 1], options.port).into();
-            let server = Server::bind(&addr)
-                .serve(service)
-                .with_graceful_shutdown(shutdown_rx)
-                .map_err(|e| eprintln!("server error: {}", e));
-
-            hyper::rt::run(server);
+                }
+            });
         });
 
         MessageReceiver {
@@ -123,5 +105,52 @@ impl MessageReceiver {
 
     pub fn stop(self) {
         let _dont_care = self.shutdown_tx.send(());
+    }
+}
+
+// Hyper service implementation for handling requests.
+struct HyperService {
+    server_id: Arc<String>,
+    message_tx: mpsc::Sender<Message>,
+}
+
+impl Service<hyper::Request<hyper::body::Incoming>> for HyperService {
+    type Response = Response<Full<Bytes>>;
+    type Error = hyper::Error;
+    type Future = futures::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn call(&self, req: Request<hyper::body::Incoming>) -> Self::Future {
+        let server_id = self.server_id.clone();
+        let message_tx = self.message_tx.clone();
+        Box::pin(async move {
+            let mut response = Response::new(Full::new(Bytes::new()));
+            let path = req.uri().path().to_string();
+            let method = req.method().clone();
+            log::debug!("Request: {} {}", method, path);
+            match (method, path.as_str()) {
+                (hyper::Method::GET, "/") => {
+                    *response.body_mut() = Full::from(server_id.as_str().to_owned());
+                }
+                (hyper::Method::POST, "/start") => {
+                    let _ = message_tx.send(Message::Start);
+                    *response.body_mut() = Full::from("Started");
+                }
+                (hyper::Method::POST, "/stop") => {
+                    let _ = message_tx.send(Message::Stop);
+                    *response.body_mut() = Full::from("Finished");
+                }
+                (hyper::Method::POST, "/messages") => {
+                    let body_bytes = req.into_body().collect().await?.to_bytes();
+                    let messages: Vec<RobloxMessage> = serde_json::from_slice(&body_bytes)
+                        .expect("Failed deserializing message from Roblox Studio");
+                    let _ = message_tx.send(Message::Messages(messages));
+                    *response.body_mut() = Full::from("Got it!");
+                }
+                _ => {
+                    *response.status_mut() = StatusCode::NOT_FOUND;
+                }
+            }
+            Ok(response)
+        })
     }
 }

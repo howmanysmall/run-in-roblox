@@ -5,9 +5,9 @@ mod plugin;
 use std::{path::PathBuf, process, sync::mpsc, thread};
 
 use anyhow::anyhow;
+use clap::Parser;
 use colored::Colorize;
 use fs_err as fs;
-use structopt::StructOpt;
 use tempfile::tempdir;
 
 use crate::{
@@ -15,21 +15,27 @@ use crate::{
     place_runner::PlaceRunner,
 };
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
+#[command(about = "Run stuff inside Roblox Studio", long_about = None)]
 struct Options {
     /// A path to the place file to open in Roblox Studio. If not specified, an
     /// empty place file is used.
-    #[structopt(long("place"))]
+    #[arg(long = "place")]
     place_path: Option<PathBuf>,
 
     /// A path to the script to run in Roblox Studio.
     ///
     /// The script will be run at plugin-level security.
-    #[structopt(long("script"))]
+    #[arg(long = "script")]
     script_path: PathBuf,
-}
 
-fn run(options: Options) -> Result<i32, anyhow::Error> {
+    /// One or more regular expressions. If an error message matches any of
+    /// these regexes, the error will be logged but the program will exit with
+    /// code 0.
+    #[arg(long = "ignore-pattern")]
+    ignore_pattern: Vec<String>,
+}
+fn run(options: &Options) -> Result<i32, anyhow::Error> {
     // Create a temp directory to house our place, even if a path is given from
     // the command line. This helps ensure Studio won't hang trying to tell the
     // user that the place is read-only because of a .lock file.
@@ -56,6 +62,14 @@ fn run(options: Options) -> Result<i32, anyhow::Error> {
     }
 
     let script_contents = fs::read_to_string(&options.script_path)?;
+
+    // Compile ignore patterns into regexes early so we can use them when
+    // emitting errors. Invalid regexes will cause an immediate error.
+    let ignore_regexes: Vec<regex::Regex> = options
+        .ignore_pattern
+        .iter()
+        .map(|s| regex::Regex::new(s))
+        .collect::<Result<_, _>>()?;
 
     // Generate a random, unique ID for this session. The plugin we inject will
     // compare this value with the one reported by the server and abort if they
@@ -90,7 +104,12 @@ fn run(options: Options) -> Result<i32, anyhow::Error> {
                 println!("{}", colored_body);
 
                 if level == OutputLevel::Error {
-                    exit_code = 1;
+                    // If any ignore regex matches the error body, treat as success.
+                    if ignore_regexes.iter().any(|re| re.is_match(&body)) {
+                        log::warn!("Ignored error by pattern: {}", body);
+                    } else {
+                        exit_code = 1;
+                    }
                 }
             }
         }
@@ -100,7 +119,7 @@ fn run(options: Options) -> Result<i32, anyhow::Error> {
 }
 
 fn main() {
-    let options = Options::from_args();
+    let options = Options::parse();
 
     {
         let log_env = env_logger::Env::default().default_filter_or("warn");
@@ -110,10 +129,22 @@ fn main() {
             .init();
     }
 
-    match run(options) {
+    match run(&options) {
         Ok(exit_code) => process::exit(exit_code),
         Err(err) => {
-            log::error!("{:?}", err);
+            // If any ignore pattern matches the error, log and exit 0.
+            let msg = format!("{:?}", err);
+            if options
+                .ignore_pattern
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .any(|re| re.is_match(&msg))
+            {
+                log::warn!("Ignored error by pattern: {}", msg);
+                process::exit(0);
+            }
+
+            log::error!("{}", msg);
             process::exit(2);
         }
     }

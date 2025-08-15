@@ -1,32 +1,37 @@
 [package]
-name = "run-in-roblox"
-description = "Run stuff inside Roblox Studio"
-version = "0.3.0"
 authors = ["Lucien Greathouse <me@lpghatguy.com>"]
-edition = "2018"
-repository = "https://github.com/rojo-rbx/run-in-roblox"
+description = "Run stuff inside Roblox Studio"
+edition = "2021"
 license = "MIT"
+name = "run-in-roblox"
 readme = "README.md"
+repository = "https://github.com/rojo-rbx/run-in-roblox"
+version = "0.3.0"
 
 [[bin]]
 name = "run-in-roblox"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.28"
-colored = "1.9.3"
-env_logger = "0.7.1"
-fs-err = "2.3.0"
-futures = "0.1.25"
-hyper = "0.12.35"
-log = "0.4.8"
-rand = "0.7.3"
-rbx_binary = "0.5.0"
-rbx_dom_weak = "1.10.1"
-rbx_xml = "0.11.4"
-roblox_install = "0.2.2"
-serde = { version = "1.0.106", features = ["derive"] }
-serde_json = "1.0.51"
-structopt = "0.3.13"
-tempfile = "3.1.0"
-thiserror = "1.0.14"
+anyhow = "1.0"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+colored = "3.0"
+env_logger = "0.11"
+fs-err = "3.0"
+futures = "0.3"                                                                    # upgraded to 0.3 for async/await interoperability
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["server", "http1", "tokio"] }
+log = "0.4"
+rand = "0.9"
+rbx_binary = "1"
+rbx_dom_weak = "3"
+rbx_xml = "1"
+regex = "1"
+roblox_install = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.10"
+thiserror = "2.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
