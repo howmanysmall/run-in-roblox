@@ -1,9 +1,9 @@
 use std::io::Write;
 
+use rbx_dom_weak::{InstanceBuilder, WeakDom};
 use rbx_xml::EncodeError;
-use rbx_dom_weak::{WeakDom, InstanceBuilder};
 
-static PLUGIN_TEMPLATE: &'static str = include_str!("plugin_main_template.lua");
+static PLUGIN_TEMPLATE: &str = include_str!("plugin_main_template.lua");
 
 pub struct RunInRbxPlugin<'a> {
     pub port: u16,
@@ -36,7 +36,7 @@ impl<'a> RunInRbxPlugin<'a> {
 
         let mut dom = WeakDom::new(plugin_script);
         let root_id = dom.root_ref();
-    dom.insert(root_id, injected_main);
+        dom.insert(root_id, injected_main);
         dom
     }
 }
