@@ -6,19 +6,40 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
+  test:
     strategy:
       matrix:
-        rust_version: [stable, "1.37.0"]
+        include:
+          - os: ubuntu-22.04
+            rust: stable
+          - os: ubuntu-22.04
+            rust: 1.56.0  # Minimum supported Rust version for 2021 edition
+          - os: windows-2022
+            rust: stable
+          - os: macos-13
+            rust: stable
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
 
     - name: Setup Rust toolchain
-      run: rustup default ${{ matrix.rust_version }}
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
 
     - name: Build
       run: cargo build --locked --verbose
@@ -26,8 +47,10 @@ jobs:
     - name: Run tests
       run: cargo test --locked --verbose
 
-    - name: Rustfmt and Clippy
-      run: |
-        cargo fmt -- --check
-        cargo clippy
-      if: matrix.rust_version == 'stable'
+    - name: Check formatting
+      run: cargo fmt -- --check
+      if: matrix.rust == 'stable' && matrix.os == 'ubuntu-22.04'
+
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      if: matrix.rust == 'stable' && matrix.os == 'ubuntu-22.04'

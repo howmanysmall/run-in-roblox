@@ -5,62 +5,62 @@ on:
     tags: ["*"]
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            name: run-in-roblox-win64
+            ext: .exe
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: run-in-roblox-macos-x86_64
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-14
+            name: run-in-roblox-macos-aarch64
+            ext: ""
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: run-in-roblox-linux-x86_64
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            name: run-in-roblox-linux-aarch64
+            ext: ""
+            cross: true
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
       with:
         submodules: true
 
-    - name: Build release binary
-      run: cargo build --verbose --locked --release
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
       with:
-        name: run-in-roblox-win64
-        path: target/release/run-in-roblox.exe
+        targets: ${{ matrix.target }}
 
-  macos:
-    runs-on: macos-latest
-
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-
-    - name: Install Rust
-      run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    - name: Install cross (for ARM64 Linux)
+      if: matrix.cross
+      run: cargo install cross --git https://github.com/cross-rs/cross
 
     - name: Build release binary
       run: |
-        source $HOME/.cargo/env
-        cargo build --verbose --locked --release
+        if [ "${{ matrix.cross }}" = "true" ]; then
+          cross build --verbose --locked --release --target ${{ matrix.target }}
+        else
+          cargo build --verbose --locked --release --target ${{ matrix.target }}
+        fi
+      shell: bash
       env:
         OPENSSL_STATIC: 1
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: run-in-roblox-macos
-        path: target/release/run-in-roblox
-
-  linux:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        submodules: true
-
-    - name: Build
-      run: cargo build --locked --verbose --release
-      env:
-        OPENSSL_STATIC: 1
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v1
-      with:
-        name: run-in-roblox-linux
-        path: target/release/run-in-roblox
+        name: ${{ matrix.name }}
+        path: target/${{ matrix.target }}/release/run-in-roblox${{ matrix.ext }}
+        if-no-files-found: error
