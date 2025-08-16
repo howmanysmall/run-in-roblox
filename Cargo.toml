@@ -25,7 +25,6 @@ hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["server", "http1", "tokio"] }
 log = "0.4"
 rand = "0.9"
-rbx_binary = "1"
 rbx_dom_weak = "3"
 rbx_xml = "1"
 regex = "1"
