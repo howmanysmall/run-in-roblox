@@ -80,6 +80,29 @@ jobs:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
 
+    - name: Derive version (strip leading v if present)
+      id: version
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create zipped release bundles
+      run: |
+        VERSION='${{ steps.version.outputs.version }}'
+        
+        # Create Windows bundle
+        zip -j run-in-roblox-${VERSION}-win64.zip run-in-roblox-win64/run-in-roblox.exe
+        
+        # Create macOS bundle
+        zip run-in-roblox-${VERSION}-macos.zip \
+          run-in-roblox-macos-x86_64/run-in-roblox \
+          run-in-roblox-macos-aarch64/run-in-roblox
+        
+        # Create Linux bundle
+        zip run-in-roblox-${VERSION}-linux.zip \
+          run-in-roblox-linux-x86_64/run-in-roblox \
+          run-in-roblox-linux-aarch64/run-in-roblox
+
     - name: Publish GitHub Release
       uses: softprops/action-gh-release@v2
       with:
@@ -91,8 +114,6 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          run-in-roblox-win64/run-in-roblox.exe
-          run-in-roblox-macos-x86_64/run-in-roblox
-          run-in-roblox-macos-aarch64/run-in-roblox
-          run-in-roblox-linux-x86_64/run-in-roblox
-          run-in-roblox-linux-aarch64/run-in-roblox
+          run-in-roblox-${{ steps.version.outputs.version }}-win64.zip
+          run-in-roblox-${{ steps.version.outputs.version }}-macos.zip
+          run-in-roblox-${{ steps.version.outputs.version }}-linux.zip

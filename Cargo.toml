@@ -6,7 +6,7 @@ license = "MIT"
 name = "run-in-roblox"
 readme = "README.md"
 repository = "https://github.com/howmanysmall/run-in-roblox"
-version = "0.4.0"
+version = "0.4.1"
 
 [[bin]]
 name = "run-in-roblox"
