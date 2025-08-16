@@ -64,3 +64,25 @@ jobs:
         name: ${{ matrix.name }}
         path: target/${{ matrix.target }}/release/run-in-roblox${{ matrix.ext }}
         if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Upload release assets
+      run: |
+        gh release upload ${{ github.ref_name }} \
+          run-in-roblox-win64/run-in-roblox.exe \
+          run-in-roblox-macos-x86_64/run-in-roblox \
+          run-in-roblox-macos-aarch64/run-in-roblox \
+          run-in-roblox-linux-x86_64/run-in-roblox \
+          run-in-roblox-linux-aarch64/run-in-roblox \
+          --repo ${{ github.repository }}
+      env:
+        GH_TOKEN: ${{ github.token }}
